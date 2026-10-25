@@ -1,0 +1,750 @@
+{
+  "updatedAt": "2026-10-25T17:50:31.186Z",
+  "createdAt": "2026-10-25T14:44:28.168Z",
+  "id": "12I8TXAylSZGHyQD",
+  "name": "My workflow",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "Clientes",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.2,
+      "position": [
+        -112,
+        32
+      ],
+      "id": "5f65cf22-1a28-4155-91af-e797711f4e73",
+      "name": "Webhook",
+      "webhookId": "163ff8c0-435b-40ee-bcd1-6e2748af4e39"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{$json}}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [
+        2096,
+        400
+      ],
+      "id": "2f393332-d9f1-4c8d-a4f9-142aaf727747",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.5,
+      "position": [
+        16,
+        368
+      ],
+      "id": "3d117b87-f280-4a6a-9edf-94c68b1dc49c",
+      "name": "HTTP Request"
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega o CSV como texto vindo do HTTP Request\nconst csvRaw = $json.data ?? $json.body ?? $json;\nconst text = (typeof csvRaw === \"string\") ? csvRaw : JSON.stringify(csvRaw);\n\nconst lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst headers = lines[0].split(\",\").map(h => h.trim());\n\nconst investimentos = lines.slice(1).map(line => {\n  const cols = line.split(\",\").map(c => c.trim());\n  const obj = {};\n  headers.forEach((h, i) => obj[h] = cols[i] ?? \"\");\n\n  // normaliza mínimo para número\n  obj.minimo = Number(String(obj.minimo).replace(/[^\\d]/g, \"\")) || 0;\n\n  return obj;\n});\n\nreturn [{ json: { investimentos } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        192,
+        368
+      ],
+      "id": "8ad9ae71-53dc-48f5-8851-a5b8e1c65fe2",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "mode": "combine",
+        "combineBy": "combineByPosition",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        320,
+        48
+      ],
+      "id": "325eb359-cc62-49c6-ad1d-d30cb12bbdaf",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "jsCode": "const item = $input.first().json;\n\nconst catalogo = item.investimentos ?? [];\n\n// Aceita body como array, { clientes: [...] } ou um único cliente\nconst body = item.body;\nconst clientes = Array.isArray(body) ? body : (body?.clientes ?? [body]);\n\nconst norm = s => String(s ?? \"\").normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").trim().toLowerCase();\nconst brl = n => \"R$ \" + Number(n).toLocaleString(\"pt-BR\");\n\n// \"R$ 22.300,00\" -> 22300\nconst paraNumero = s => parseFloat(String(s ?? \"\").replace(/[^\\d,]/g, \"\").replace(\",\", \".\")) || 0;\n\nconst abertura = {\n  conservador: \"perfil conservador\",\n  moderado: \"perfil moderado\",\n  arrojado: \"perfil arrojado\"\n};\n\nreturn clientes.map(c => {\n  const saldo = paraNumero(c.saldo);\n  const perfil = norm(c.perfil);\n\n  const doPerfil = catalogo.filter(p => norm(p.perfil) === perfil);\n  const acessiveis = doPerfil.filter(p => p.minimo <= saldo);\n\n  let mensagem;\n  if (doPerfil.length === 0) {\n    mensagem = `Olá, ${c.nome}! Ainda não temos recomendações para o seu perfil.`;\n  } else if (acessiveis.length === 0) {\n    const menor = Math.min(...doPerfil.map(p => p.minimo));\n    mensagem =\n      `Olá, ${c.nome}!\\n\\n` +\n      `Para o seu ${abertura[perfil] ?? \"perfil\"}, o menor investimento exige ${brl(menor)}, ` +\n      `acima do seu saldo atual de ${c.saldo}.`;\n  } else {\n    const linhas = acessiveis\n      .map(p => `• ${p.produto} | mínimo ${brl(p.minimo)} | rentabilidade: ${p.rentabilidade}`)\n      .join(\"\\n\");\n\n    mensagem =\n      `Olá, ${c.nome}!\\n\\n` +\n      `Com base no seu ${abertura[perfil] ?? \"perfil\"} e no seu saldo de ${c.saldo}, ` +\n      `estas são as opções para você:\\n\\n` +\n      `${linhas}\\n\\n` +\n      `Rentabilidade passada não garante resultados futuros.`;\n  }\n\n  return { json: { nome: c.nome, email: c.email, perfil: c.perfil,saldo: c.saldo, mensagem } };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        272
+      ],
+      "id": "e5c3d2cf-3e34-444a-a4d8-7a6057622c43",
+      "name": "Code in JavaScript1"
+    },
+    {
+      "parameters": {
+        "jsCode": "const NO_WEBHOOK = \"Webhook\";\nconst NO_CATALOGO = \"Code in JavaScript\";   // o nó que converte o CSV\n\nconst tentar = fn => { try { return fn(); } catch { return undefined; } };\n\nconst entradas = $input.all().map(i => i.json);\n\n// Catálogo: da entrada, ou direto do nó que converte o CSV\nconst catalogo =\n  entradas.find(j => Array.isArray(j.investimentos))?.investimentos ??\n  tentar(() => $(NO_CATALOGO).first().json.investimentos) ??\n  [];\n\n// Clientes: da entrada, ou direto do Webhook\nconst acharClientes = j => {\n  const f = j?.body ?? j;\n  if (Array.isArray(f)) return f;\n  if (Array.isArray(f?.clientes)) return f.clientes;\n  if (f?.nome) return [f];\n  return [];\n};\n\nlet clientes = entradas.flatMap(acharClientes).filter(c => c && c.perfil);\nif (clientes.length === 0) {\n  clientes = acharClientes(tentar(() => $(NO_WEBHOOK).first().json)).filter(c => c && c.perfil);\n}\n\nif (catalogo.length === 0) {\n  throw new Error(`Catálogo não encontrado. Confira se o nó \"${NO_CATALOGO}\" existe e já foi executado.`);\n}\nif (clientes.length === 0) {\n  throw new Error(`Nenhum cliente encontrado. Confira o body do POST e o nome do nó \"${NO_WEBHOOK}\".`);\n}\n\nconst norm = s => String(s ?? \"\").normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").trim().toLowerCase();\nconst brl = n => \"R$ \" + Number(n).toLocaleString(\"pt-BR\");\nconst paraNumero = s => parseFloat(String(s ?? \"\").replace(/[^\\d,]/g, \"\").replace(\",\", \".\")) || 0;\n\nreturn clientes.map(c => {\n  const saldo = paraNumero(c.saldo);\n  const perfil = norm(c.perfil);\n\n  const doPerfil = catalogo.filter(p => norm(p.perfil) === perfil);\n  const acessiveis = doPerfil.filter(p => p.minimo <= saldo);\n\n  let mensagem;\n  if (doPerfil.length === 0) {\n    mensagem = `Olá, ${c.nome}! Ainda não temos recomendações para o seu perfil.`;\n  } else if (acessiveis.length === 0) {\n    const menor = Math.min(...doPerfil.map(p => p.minimo));\n    mensagem = `Olá, ${c.nome}!\\n\\nO menor investimento do seu perfil exige ${brl(menor)}, acima do seu saldo atual de ${c.saldo}.`;\n  } else {\n    const linhas = acessiveis\n      .map(p => `• ${p.produto} | mínimo ${brl(p.minimo)} | rentabilidade: ${p.rentabilidade}`)\n      .join(\"\\n\");\n\n    mensagem =\n      `Olá, ${c.nome}!\\n\\n` +\n      `Com base no seu perfil ${String(c.perfil).toLowerCase()} e no seu saldo de ${c.saldo}, estas são as opções para você:\\n\\n` +\n      `${linhas}\\n\\n` +\n      `Rentabilidade passada não garante resultados futuros.`;\n  }\n\n  return {\n    json: {\n      nome: c.nome,\n      email: c.email,\n      perfil: c.perfil,\n      saldo: c.saldo,\n      produtos: acessiveis.map(p => p.produto).join(\", \") || \"—\",\n      mensagem\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        704,
+        432
+      ],
+      "id": "43352811-b42b-4fe7-bdfb-a1e0ea00d3d0",
+      "name": "Code in JavaScript2"
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o",
+          "mode": "list",
+          "cachedResultName": "GPT-4O"
+        },
+        "responses": {
+          "values": [
+            {
+              "content": "=Você é um assistente de comunicação de uma empresa de investimentos no Brasil. Escreva um e-mail curto em português do Brasil, em tom cordial e profissional, para este cliente:\n\nNome: {{ $json.nome }}\nPerfil de investidor: {{ $json.perfil }}\nSaldo disponível: {{ $json.saldo }}\nProdutos compatíveis com o perfil e o saldo: {{ $json.produtos }}\n\nRegras obrigatórias:\n- Cumprimente o cliente pelo nome e cite cada produto da lista pelo nome.\n- Nunca prometa, garanta ou sugira ganhos, lucros ou retornos.\n- Não cite percentuais, rentabilidade nem projeções.\n- Não use expressões como \"ótima oportunidade\", \"não perca\", \"sem risco\" ou \"garantido\".\n- Use apenas os produtos informados. Não invente produtos nem dados.\n- Apresente os produtos como opções para o cliente avaliar.\n- Se a lista de produtos for \"—\", diga que no momento não há opções compatíveis com o saldo atual, sem recomendar nada.\n- Informe que todo investimento envolve risco e que a rentabilidade passada não garante resultados futuros.\n- Máximo de 100 palavras, sem contar a assinatura.\n- Termine convidando o cliente a responder o e-mail para tirar dúvidas.\n- Encerre com \"Atenciosamente,\" e, na linha seguinte, \"Equipe de Investimentos\".\n- Nunca use placeholders entre colchetes, como [Seu Nome] ou [Nome da Empresa].\n\nResponda somente com JSON puro, sem blocos de código markdown e sem texto antes ou depois, neste formato:\n{\"assunto\": \"...\", \"corpo\": \"...\"}"
+            }
+          ]
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 2.3,
+      "position": [
+        880,
+        32
+      ],
+      "id": "711d2c09-f934-46c1-8cba-5f9e2bf8773d",
+      "name": "Message a model",
+      "credentials": {
+        "openAiApi": {
+          "id": null,
+          "name": "",
+          "__aiGatewayManaged": true
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// ===== Configuração =====\nconst NO_ORIGEM = \"Code in JavaScript2\";   // nó que tem nome, email, produtos e mensagem\nconst ASSINATURA = \"Atenciosamente,\\nEquipe de Investimentos\";\nconst AVISO = \"Lembramos que todo investimento envolve risco e que a rentabilidade passada não garante resultados futuros.\";\nconst ASSUNTO_PADRAO = \"Opções de investimento para o seu perfil\";\n\n// Expressões que não podem aparecer (promessa de ganho)\nconst PROIBIDAS = [/garantid/i, /sem risco/i, /lucro certo/i, /ganho certo/i, /retorno certo/i, /n[ãa]o perca/i, /[óo]tima oportunidade/i];\n\n// ===== Funções auxiliares =====\nconst tentar = fn => { try { return fn(); } catch { return undefined; } };\nconst esc = s => String(s ?? \"\").replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\");\nconst emailValido = e => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(e ?? \"\").trim());\n\nconst extrairTexto = j =>\n  j.output?.[0]?.content?.[0]?.text ?? j.message?.content ?? j.text ?? j.content?.[0]?.text ?? \"\";\n\n// Remove ```json, texto antes/depois e converte para objeto\nconst extrairJson = txt => {\n  const limpo = String(txt).replace(/```json|```/gi, \"\").trim();\n  const ini = limpo.indexOf(\"{\");\n  const fim = limpo.lastIndexOf(\"}\");\n  if (ini === -1 || fim === -1) return null;\n  return tentar(() => JSON.parse(limpo.slice(ini, fim + 1))) ?? null;\n};\n\nconst normalizar = s => String(s ?? \"\")\n  .replace(/\\\\n/g, \"\\n\")            // \"\\n\" escrito como texto\n  .replace(/\\r\\n?/g, \"\\n\")\n  .replace(/\\[[^\\]]*\\]/g, \"\")       // remove placeholders como [Seu Nome]\n  .replace(/[ \\t]+/g, \" \")\n  .replace(/ *\\n */g, \"\\n\")\n  .replace(/\\n{3,}/g, \"\\n\\n\")\n  .trim();\n\n// ===== Processamento =====\nreturn $input.all().map((item, i) => {\n  const origem = tentar(() => $(NO_ORIGEM).itemMatching(i).json)\n              ?? tentar(() => $(NO_ORIGEM).all()[i].json)\n              ?? {};\n\n  const dados = extrairJson(extrairTexto(item.json));\n  let status = \"ok\";\n  let assunto, corpo;\n\n  if (dados?.corpo) {\n    assunto = normalizar(dados.assunto).replace(/\\n/g, \" \").slice(0, 80) || ASSUNTO_PADRAO;\n    corpo = normalizar(dados.corpo);\n  } else {\n    // Se a IA não devolveu JSON válido, usa a mensagem pronta do código anterior\n    status = \"fallback\";\n    assunto = ASSUNTO_PADRAO;\n    corpo = normalizar(origem.mensagem ?? \"\");\n  }\n\n  // Padroniza o fechamento: corpo + aviso de risco + assinatura fixa\n  const idx = corpo.search(/atenciosamente/i);\n  let principal = (idx >= 0 ? corpo.slice(0, idx) : corpo).trim();\n  if (!/n[ãa]o garante/i.test(principal)) principal += \"\\n\\n\" + AVISO;\n  const corpoTexto = `${principal}\\n\\n${ASSINATURA}`;\n\n  // Sinaliza para revisão se houver promessa de ganho ou dado faltando\n  if (PROIBIDAS.some(r => r.test(corpoTexto))) status = \"revisar\";\n  if (!emailValido(origem.email)) status = \"email_invalido\";\n\n  const corpoHtml = corpoTexto\n    .split(/\\n{2,}/)\n    .map(p => `<p style=\"margin:0 0 12px\">${esc(p).replace(/\\n/g, \"<br>\")}</p>`)\n    .join(\"\");\n\n  return {\n    json: {\n      nome: origem.nome,\n      email: String(origem.email ?? \"\").trim(),\n      assunto,\n      corpo_texto: corpoTexto,\n      corpo_html: `<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#1f2937\">${corpoHtml}</div>`,\n      status\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1168,
+        208
+      ],
+      "id": "40541e57-4755-42a7-9648-be5d59110f6e",
+      "name": "Code in JavaScript3"
+    },
+    {
+      "parameters": {
+        "sendTo": "={{ $json.email }}",
+        "subject": "={{ $json.assunto }}",
+        "message": "={{ $json.corpo_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.2,
+      "position": [
+        1760,
+        160
+      ],
+      "id": "d04db748-d76b-469e-ad8c-3fa34ed95eb6",
+      "name": "Send a message",
+      "webhookId": "1401c8f3-e4fb-443f-926e-2fc67ce014db",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "9t1Zr1IDNfEVn0o9",
+          "name": "Gmail account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 4
+          },
+          "conditions": [
+            {
+              "id": "4ece5ac7-e9aa-49a5-850c-856a6c07951a",
+              "leftValue": "={{ $json.email }}",
+              "rightValue": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+              "operator": {
+                "type": "string",
+                "operation": "regex"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.4,
+      "position": [
+        1392,
+        400
+      ],
+      "id": "28f7b3cd-914d-4672-9cf4-37c5fdf01918",
+      "name": "If"
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [
+          {
+            "node": "HTTP Request",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Respond to Webhook": {
+      "main": [
+        []
+      ]
+    },
+    "HTTP Request": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript1": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript2": {
+      "main": [
+        [
+          {
+            "node": "Message a model",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Message a model": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript3": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send a message": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Send a message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "nodeGroups": [],
+  "pinData": {},
+  "versionId": "540caf30-ff46-436a-bb57-26bd07b3c814",
+  "activeVersionId": "540caf30-ff46-436a-bb57-26bd07b3c814",
+  "versionCounter": 104,
+  "triggerCount": 1,
+  "sourceWorkflowId": null,
+  "tags": [],
+  "parentFolder": null,
+  "activeVersion": {
+    "updatedAt": "2026-10-25T17:50:55.000Z",
+    "createdAt": "2026-10-25T17:50:31.187Z",
+    "versionId": "540caf30-ff46-436a-bb57-26bd07b3c814",
+    "workflowId": "12I8TXAylSZGHyQD",
+    "nodes": [
+      {
+        "parameters": {
+          "httpMethod": "POST",
+          "path": "Clientes",
+          "responseMode": "responseNode",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.webhook",
+        "typeVersion": 2.2,
+        "position": [
+          -112,
+          32
+        ],
+        "id": "5f65cf22-1a28-4155-91af-e797711f4e73",
+        "name": "Webhook",
+        "webhookId": "163ff8c0-435b-40ee-bcd1-6e2748af4e39"
+      },
+      {
+        "parameters": {
+          "respondWith": "json",
+          "responseBody": "={{$json}}",
+          "options": {
+            "responseCode": 200
+          }
+        },
+        "type": "n8n-nodes-base.respondToWebhook",
+        "typeVersion": 1.5,
+        "position": [
+          2096,
+          400
+        ],
+        "id": "2f393332-d9f1-4c8d-a4f9-142aaf727747",
+        "name": "Respond to Webhook"
+      },
+      {
+        "parameters": {
+          "url": "https://digitalinnovationone.github.io/dio-lab-assistente-investimentos-rpa-n8n/data.csv",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.httpRequest",
+        "typeVersion": 4.5,
+        "position": [
+          16,
+          368
+        ],
+        "id": "3d117b87-f280-4a6a-9edf-94c68b1dc49c",
+        "name": "HTTP Request"
+      },
+      {
+        "parameters": {
+          "jsCode": "// Pega o CSV como texto vindo do HTTP Request\nconst csvRaw = $json.data ?? $json.body ?? $json;\nconst text = (typeof csvRaw === \"string\") ? csvRaw : JSON.stringify(csvRaw);\n\nconst lines = text.split(/\\r?\\n/).map(l => l.trim()).filter(Boolean);\nconst headers = lines[0].split(\",\").map(h => h.trim());\n\nconst investimentos = lines.slice(1).map(line => {\n  const cols = line.split(\",\").map(c => c.trim());\n  const obj = {};\n  headers.forEach((h, i) => obj[h] = cols[i] ?? \"\");\n\n  // normaliza mínimo para número\n  obj.minimo = Number(String(obj.minimo).replace(/[^\\d]/g, \"\")) || 0;\n\n  return obj;\n});\n\nreturn [{ json: { investimentos } }];"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          192,
+          368
+        ],
+        "id": "8ad9ae71-53dc-48f5-8851-a5b8e1c65fe2",
+        "name": "Code in JavaScript"
+      },
+      {
+        "parameters": {
+          "mode": "combine",
+          "combineBy": "combineByPosition",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.merge",
+        "typeVersion": 3.2,
+        "position": [
+          320,
+          48
+        ],
+        "id": "325eb359-cc62-49c6-ad1d-d30cb12bbdaf",
+        "name": "Merge"
+      },
+      {
+        "parameters": {
+          "jsCode": "const item = $input.first().json;\n\nconst catalogo = item.investimentos ?? [];\n\n// Aceita body como array, { clientes: [...] } ou um único cliente\nconst body = item.body;\nconst clientes = Array.isArray(body) ? body : (body?.clientes ?? [body]);\n\nconst norm = s => String(s ?? \"\").normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").trim().toLowerCase();\nconst brl = n => \"R$ \" + Number(n).toLocaleString(\"pt-BR\");\n\n// \"R$ 22.300,00\" -> 22300\nconst paraNumero = s => parseFloat(String(s ?? \"\").replace(/[^\\d,]/g, \"\").replace(\",\", \".\")) || 0;\n\nconst abertura = {\n  conservador: \"perfil conservador\",\n  moderado: \"perfil moderado\",\n  arrojado: \"perfil arrojado\"\n};\n\nreturn clientes.map(c => {\n  const saldo = paraNumero(c.saldo);\n  const perfil = norm(c.perfil);\n\n  const doPerfil = catalogo.filter(p => norm(p.perfil) === perfil);\n  const acessiveis = doPerfil.filter(p => p.minimo <= saldo);\n\n  let mensagem;\n  if (doPerfil.length === 0) {\n    mensagem = `Olá, ${c.nome}! Ainda não temos recomendações para o seu perfil.`;\n  } else if (acessiveis.length === 0) {\n    const menor = Math.min(...doPerfil.map(p => p.minimo));\n    mensagem =\n      `Olá, ${c.nome}!\\n\\n` +\n      `Para o seu ${abertura[perfil] ?? \"perfil\"}, o menor investimento exige ${brl(menor)}, ` +\n      `acima do seu saldo atual de ${c.saldo}.`;\n  } else {\n    const linhas = acessiveis\n      .map(p => `• ${p.produto} | mínimo ${brl(p.minimo)} | rentabilidade: ${p.rentabilidade}`)\n      .join(\"\\n\");\n\n    mensagem =\n      `Olá, ${c.nome}!\\n\\n` +\n      `Com base no seu ${abertura[perfil] ?? \"perfil\"} e no seu saldo de ${c.saldo}, ` +\n      `estas são as opções para você:\\n\\n` +\n      `${linhas}\\n\\n` +\n      `Rentabilidade passada não garante resultados futuros.`;\n  }\n\n  return { json: { nome: c.nome, email: c.email, perfil: c.perfil,saldo: c.saldo, mensagem } };\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          480,
+          272
+        ],
+        "id": "e5c3d2cf-3e34-444a-a4d8-7a6057622c43",
+        "name": "Code in JavaScript1"
+      },
+      {
+        "parameters": {
+          "jsCode": "const NO_WEBHOOK = \"Webhook\";\nconst NO_CATALOGO = \"Code in JavaScript\";   // o nó que converte o CSV\n\nconst tentar = fn => { try { return fn(); } catch { return undefined; } };\n\nconst entradas = $input.all().map(i => i.json);\n\n// Catálogo: da entrada, ou direto do nó que converte o CSV\nconst catalogo =\n  entradas.find(j => Array.isArray(j.investimentos))?.investimentos ??\n  tentar(() => $(NO_CATALOGO).first().json.investimentos) ??\n  [];\n\n// Clientes: da entrada, ou direto do Webhook\nconst acharClientes = j => {\n  const f = j?.body ?? j;\n  if (Array.isArray(f)) return f;\n  if (Array.isArray(f?.clientes)) return f.clientes;\n  if (f?.nome) return [f];\n  return [];\n};\n\nlet clientes = entradas.flatMap(acharClientes).filter(c => c && c.perfil);\nif (clientes.length === 0) {\n  clientes = acharClientes(tentar(() => $(NO_WEBHOOK).first().json)).filter(c => c && c.perfil);\n}\n\nif (catalogo.length === 0) {\n  throw new Error(`Catálogo não encontrado. Confira se o nó \"${NO_CATALOGO}\" existe e já foi executado.`);\n}\nif (clientes.length === 0) {\n  throw new Error(`Nenhum cliente encontrado. Confira o body do POST e o nome do nó \"${NO_WEBHOOK}\".`);\n}\n\nconst norm = s => String(s ?? \"\").normalize(\"NFD\").replace(/[\\u0300-\\u036f]/g, \"\").trim().toLowerCase();\nconst brl = n => \"R$ \" + Number(n).toLocaleString(\"pt-BR\");\nconst paraNumero = s => parseFloat(String(s ?? \"\").replace(/[^\\d,]/g, \"\").replace(\",\", \".\")) || 0;\n\nreturn clientes.map(c => {\n  const saldo = paraNumero(c.saldo);\n  const perfil = norm(c.perfil);\n\n  const doPerfil = catalogo.filter(p => norm(p.perfil) === perfil);\n  const acessiveis = doPerfil.filter(p => p.minimo <= saldo);\n\n  let mensagem;\n  if (doPerfil.length === 0) {\n    mensagem = `Olá, ${c.nome}! Ainda não temos recomendações para o seu perfil.`;\n  } else if (acessiveis.length === 0) {\n    const menor = Math.min(...doPerfil.map(p => p.minimo));\n    mensagem = `Olá, ${c.nome}!\\n\\nO menor investimento do seu perfil exige ${brl(menor)}, acima do seu saldo atual de ${c.saldo}.`;\n  } else {\n    const linhas = acessiveis\n      .map(p => `• ${p.produto} | mínimo ${brl(p.minimo)} | rentabilidade: ${p.rentabilidade}`)\n      .join(\"\\n\");\n\n    mensagem =\n      `Olá, ${c.nome}!\\n\\n` +\n      `Com base no seu perfil ${String(c.perfil).toLowerCase()} e no seu saldo de ${c.saldo}, estas são as opções para você:\\n\\n` +\n      `${linhas}\\n\\n` +\n      `Rentabilidade passada não garante resultados futuros.`;\n  }\n\n  return {\n    json: {\n      nome: c.nome,\n      email: c.email,\n      perfil: c.perfil,\n      saldo: c.saldo,\n      produtos: acessiveis.map(p => p.produto).join(\", \") || \"—\",\n      mensagem\n    }\n  };\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          704,
+          432
+        ],
+        "id": "43352811-b42b-4fe7-bdfb-a1e0ea00d3d0",
+        "name": "Code in JavaScript2"
+      },
+      {
+        "parameters": {
+          "modelId": {
+            "__rl": true,
+            "value": "gpt-4o",
+            "mode": "list",
+            "cachedResultName": "GPT-4O"
+          },
+          "responses": {
+            "values": [
+              {
+                "content": "=Você é um assistente de comunicação de uma empresa de investimentos no Brasil. Escreva um e-mail curto em português do Brasil, em tom cordial e profissional, para este cliente:\n\nNome: {{ $json.nome }}\nPerfil de investidor: {{ $json.perfil }}\nSaldo disponível: {{ $json.saldo }}\nProdutos compatíveis com o perfil e o saldo: {{ $json.produtos }}\n\nRegras obrigatórias:\n- Cumprimente o cliente pelo nome e cite cada produto da lista pelo nome.\n- Nunca prometa, garanta ou sugira ganhos, lucros ou retornos.\n- Não cite percentuais, rentabilidade nem projeções.\n- Não use expressões como \"ótima oportunidade\", \"não perca\", \"sem risco\" ou \"garantido\".\n- Use apenas os produtos informados. Não invente produtos nem dados.\n- Apresente os produtos como opções para o cliente avaliar.\n- Se a lista de produtos for \"—\", diga que no momento não há opções compatíveis com o saldo atual, sem recomendar nada.\n- Informe que todo investimento envolve risco e que a rentabilidade passada não garante resultados futuros.\n- Máximo de 100 palavras, sem contar a assinatura.\n- Termine convidando o cliente a responder o e-mail para tirar dúvidas.\n- Encerre com \"Atenciosamente,\" e, na linha seguinte, \"Equipe de Investimentos\".\n- Nunca use placeholders entre colchetes, como [Seu Nome] ou [Nome da Empresa].\n\nResponda somente com JSON puro, sem blocos de código markdown e sem texto antes ou depois, neste formato:\n{\"assunto\": \"...\", \"corpo\": \"...\"}"
+              }
+            ]
+          },
+          "builtInTools": {},
+          "options": {}
+        },
+        "type": "@n8n/n8n-nodes-langchain.openAi",
+        "typeVersion": 2.3,
+        "position": [
+          880,
+          32
+        ],
+        "id": "711d2c09-f934-46c1-8cba-5f9e2bf8773d",
+        "name": "Message a model",
+        "credentials": {
+          "openAiApi": {
+            "id": null,
+            "name": "",
+            "__aiGatewayManaged": true
+          }
+        }
+      },
+      {
+        "parameters": {
+          "jsCode": "// ===== Configuração =====\nconst NO_ORIGEM = \"Code in JavaScript2\";   // nó que tem nome, email, produtos e mensagem\nconst ASSINATURA = \"Atenciosamente,\\nEquipe de Investimentos\";\nconst AVISO = \"Lembramos que todo investimento envolve risco e que a rentabilidade passada não garante resultados futuros.\";\nconst ASSUNTO_PADRAO = \"Opções de investimento para o seu perfil\";\n\n// Expressões que não podem aparecer (promessa de ganho)\nconst PROIBIDAS = [/garantid/i, /sem risco/i, /lucro certo/i, /ganho certo/i, /retorno certo/i, /n[ãa]o perca/i, /[óo]tima oportunidade/i];\n\n// ===== Funções auxiliares =====\nconst tentar = fn => { try { return fn(); } catch { return undefined; } };\nconst esc = s => String(s ?? \"\").replace(/&/g, \"&amp;\").replace(/</g, \"&lt;\").replace(/>/g, \"&gt;\");\nconst emailValido = e => /^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(String(e ?? \"\").trim());\n\nconst extrairTexto = j =>\n  j.output?.[0]?.content?.[0]?.text ?? j.message?.content ?? j.text ?? j.content?.[0]?.text ?? \"\";\n\n// Remove ```json, texto antes/depois e converte para objeto\nconst extrairJson = txt => {\n  const limpo = String(txt).replace(/```json|```/gi, \"\").trim();\n  const ini = limpo.indexOf(\"{\");\n  const fim = limpo.lastIndexOf(\"}\");\n  if (ini === -1 || fim === -1) return null;\n  return tentar(() => JSON.parse(limpo.slice(ini, fim + 1))) ?? null;\n};\n\nconst normalizar = s => String(s ?? \"\")\n  .replace(/\\\\n/g, \"\\n\")            // \"\\n\" escrito como texto\n  .replace(/\\r\\n?/g, \"\\n\")\n  .replace(/\\[[^\\]]*\\]/g, \"\")       // remove placeholders como [Seu Nome]\n  .replace(/[ \\t]+/g, \" \")\n  .replace(/ *\\n */g, \"\\n\")\n  .replace(/\\n{3,}/g, \"\\n\\n\")\n  .trim();\n\n// ===== Processamento =====\nreturn $input.all().map((item, i) => {\n  const origem = tentar(() => $(NO_ORIGEM).itemMatching(i).json)\n              ?? tentar(() => $(NO_ORIGEM).all()[i].json)\n              ?? {};\n\n  const dados = extrairJson(extrairTexto(item.json));\n  let status = \"ok\";\n  let assunto, corpo;\n\n  if (dados?.corpo) {\n    assunto = normalizar(dados.assunto).replace(/\\n/g, \" \").slice(0, 80) || ASSUNTO_PADRAO;\n    corpo = normalizar(dados.corpo);\n  } else {\n    // Se a IA não devolveu JSON válido, usa a mensagem pronta do código anterior\n    status = \"fallback\";\n    assunto = ASSUNTO_PADRAO;\n    corpo = normalizar(origem.mensagem ?? \"\");\n  }\n\n  // Padroniza o fechamento: corpo + aviso de risco + assinatura fixa\n  const idx = corpo.search(/atenciosamente/i);\n  let principal = (idx >= 0 ? corpo.slice(0, idx) : corpo).trim();\n  if (!/n[ãa]o garante/i.test(principal)) principal += \"\\n\\n\" + AVISO;\n  const corpoTexto = `${principal}\\n\\n${ASSINATURA}`;\n\n  // Sinaliza para revisão se houver promessa de ganho ou dado faltando\n  if (PROIBIDAS.some(r => r.test(corpoTexto))) status = \"revisar\";\n  if (!emailValido(origem.email)) status = \"email_invalido\";\n\n  const corpoHtml = corpoTexto\n    .split(/\\n{2,}/)\n    .map(p => `<p style=\"margin:0 0 12px\">${esc(p).replace(/\\n/g, \"<br>\")}</p>`)\n    .join(\"\");\n\n  return {\n    json: {\n      nome: origem.nome,\n      email: String(origem.email ?? \"\").trim(),\n      assunto,\n      corpo_texto: corpoTexto,\n      corpo_html: `<div style=\"font-family:Arial,sans-serif;font-size:14px;color:#1f2937\">${corpoHtml}</div>`,\n      status\n    }\n  };\n});"
+        },
+        "type": "n8n-nodes-base.code",
+        "typeVersion": 2,
+        "position": [
+          1168,
+          208
+        ],
+        "id": "40541e57-4755-42a7-9648-be5d59110f6e",
+        "name": "Code in JavaScript3"
+      },
+      {
+        "parameters": {
+          "sendTo": "={{ $json.email }}",
+          "subject": "={{ $json.assunto }}",
+          "message": "={{ $json.corpo_html }}",
+          "options": {}
+        },
+        "type": "n8n-nodes-base.gmail",
+        "typeVersion": 2.2,
+        "position": [
+          1760,
+          160
+        ],
+        "id": "d04db748-d76b-469e-ad8c-3fa34ed95eb6",
+        "name": "Send a message",
+        "webhookId": "1401c8f3-e4fb-443f-926e-2fc67ce014db",
+        "credentials": {
+          "gmailOAuth2": {
+            "id": "9t1Zr1IDNfEVn0o9",
+            "name": "Gmail account"
+          }
+        }
+      },
+      {
+        "parameters": {
+          "conditions": {
+            "options": {
+              "caseSensitive": true,
+              "leftValue": "",
+              "typeValidation": "strict",
+              "version": 4
+            },
+            "conditions": [
+              {
+                "id": "4ece5ac7-e9aa-49a5-850c-856a6c07951a",
+                "leftValue": "={{ $json.email }}",
+                "rightValue": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+                "operator": {
+                  "type": "string",
+                  "operation": "regex"
+                }
+              }
+            ],
+            "combinator": "and"
+          },
+          "options": {}
+        },
+        "type": "n8n-nodes-base.if",
+        "typeVersion": 2.4,
+        "position": [
+          1392,
+          400
+        ],
+        "id": "28f7b3cd-914d-4672-9cf4-37c5fdf01918",
+        "name": "If"
+      }
+    ],
+    "connections": {
+      "Webhook": {
+        "main": [
+          [
+            {
+              "node": "HTTP Request",
+              "type": "main",
+              "index": 0
+            },
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Respond to Webhook": {
+        "main": [
+          []
+        ]
+      },
+      "HTTP Request": {
+        "main": [
+          [
+            {
+              "node": "Code in JavaScript",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code in JavaScript": {
+        "main": [
+          [
+            {
+              "node": "Merge",
+              "type": "main",
+              "index": 1
+            }
+          ]
+        ]
+      },
+      "Merge": {
+        "main": [
+          [
+            {
+              "node": "Code in JavaScript1",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code in JavaScript1": {
+        "main": [
+          [
+            {
+              "node": "Code in JavaScript2",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code in JavaScript2": {
+        "main": [
+          [
+            {
+              "node": "Message a model",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Message a model": {
+        "main": [
+          [
+            {
+              "node": "Code in JavaScript3",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Code in JavaScript3": {
+        "main": [
+          [
+            {
+              "node": "If",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "Send a message": {
+        "main": [
+          [
+            {
+              "node": "Respond to Webhook",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      },
+      "If": {
+        "main": [
+          [
+            {
+              "node": "Send a message",
+              "type": "main",
+              "index": 0
+            }
+          ]
+        ]
+      }
+    },
+    "nodeGroups": [],
+    "authors": "PEDRO YAN FIRMINO DE SOUZA DIAS",
+    "name": "RPA Dio project",
+    "description": "",
+    "autosaved": true,
+    "workflowPublishHistory": [
+      {
+        "createdAt": "2026-10-25T17:50:55.072Z",
+        "id": 1,
+        "workflowId": "12I8TXAylSZGHyQD",
+        "versionId": "540caf30-ff46-436a-bb57-26bd07b3c814",
+        "event": "activated",
+        "userId": "d04ec7e7-bac9-45cd-8a9e-e614f2dfcce1"
+      }
+    ]
+  },
+  "homeProject": {
+    "id": "pxwjwJWALF5B97mb",
+    "type": "personal",
+    "name": "PEDRO YAN FIRMINO DE SOUZA DIAS <pedroyyandias@gmail.com>",
+    "icon": null
+  },
+  "sharedWithProjects": [],
+  "usedCredentials": [
+    {
+      "id": "9t1Zr1IDNfEVn0o9",
+      "name": "Gmail account",
+      "type": "gmailOAuth2",
+      "currentUserCanUse": true,
+      "homeProject": {
+        "id": "pxwjwJWALF5B97mb",
+        "type": "personal",
+        "name": "PEDRO YAN FIRMINO DE SOUZA DIAS <pedroyyandias@gmail.com>",
+        "icon": null
+      },
+      "sharedWithProjects": []
+    }
+  ],
+  "scopes": [
+    "execution:delete",
+    "execution:list",
+    "execution:read",
+    "execution:reveal",
+    "workflow:create",
+    "workflow:delete",
+    "workflow:disableRedaction",
+    "workflow:enableRedaction",
+    "workflow:execute",
+    "workflow:execute-chat",
+    "workflow:export",
+    "workflow:import",
+    "workflow:list",
+    "workflow:move",
+    "workflow:publish",
+    "workflow:read",
+    "workflow:share",
+    "workflow:unpublish",
+    "workflow:unshare",
+    "workflow:update"
+  ],
+  "checksum": "ba209dbf658fed5245a9479d2357020e33e306cc0a7f9a09439b0c7b17dafb78"
+}
